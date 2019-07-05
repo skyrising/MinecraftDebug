@@ -23,6 +23,12 @@ public class Main {
         Path pathFrom = getPath(Paths.get(args[0]));
         Path pathTo = getPath(Paths.get(args[1]));
         analyze(pathFrom, pathTo);
+        try {
+            pathFrom.getFileSystem().close();
+        } catch (UnsupportedOperationException ignored) {}
+        try {
+            pathTo.getFileSystem().close();
+        } catch (UnsupportedOperationException ignored) {}
     }
 
     private static Path getPath(Path path) throws IOException {
@@ -73,7 +79,7 @@ public class Main {
     private static void transformFile(Path from, Path to, Deobfuscator deobfuscator) throws IOException {
         if (from.endsWith("example_crash.txt")) {
             try (BufferedReader reader = Files.newBufferedReader(from);
-                 BufferedWriter writer = Files.newBufferedWriter(to)) {
+                 BufferedWriter writer = Files.newBufferedWriter(to, StandardOpenOption.TRUNCATE_EXISTING)) {
                 String line;
 
                 while ((line = reader.readLine()) != null) {
