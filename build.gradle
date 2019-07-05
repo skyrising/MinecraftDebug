@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+repositories {
+    mavenCentral()
+    jcenter()
+}
+
+dependencies {
+    implementation 'com.google.guava:guava:27.1-jre'
+    implementation 'com.google.code.gson:gson:2.8.5'
+    implementation 'it.unimi.dsi:fastutil:8.2.3'
+    implementation 'org.ow2.asm:asm:7.1'
+
+    testImplementation 'junit:junit:4.12'
+}
+
+application {
+    mainClassName = 'de.skyrising.minecraft.debug.Main'
+}
