@@ -1,5 +1,6 @@
 package de.skyrising.minecraft.deobf;
 
+import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
 import org.objectweb.asm.*;
 
 import java.io.IOException;
@@ -11,7 +12,7 @@ public class Deobfuscator {
     private Mappings mappings;
     private ClassLoader classLoader;
     private Set<String> classesParsed = new HashSet<>();
-    private Map<String, String[]> classLinesMap = new HashMap<>();
+    private Map<String, Object[]> classLinesDescMap = new HashMap<>();
     private Map<String, String> superClassMap = new HashMap<>();
     private Map<String, String[]> interfaceMap = new HashMap<>();
 
@@ -48,10 +49,12 @@ public class Deobfuscator {
     private String findMethod(StackTraceElement ste) {
         String internalClassName = ste.getClassName().replace('.', '/');
         if (!classesParsed.contains(internalClassName)) this.parseClass(internalClassName);
-        String[] lines = classLinesMap.get(internalClassName);
+        Object[] lines = classLinesDescMap.get(internalClassName);
         int lineNumber = ste.getLineNumber();
         if (lines == null || lineNumber >= lines.length) return null;
-        return lines[lineNumber];
+        Object lineInfo = lines[lineNumber];
+        if (lineInfo instanceof String) return (String) lineInfo;
+        return ((Map<String, String>) lineInfo).get(ste.getMethodName());
     }
 
     private void parseClass(String internalClassName) {
@@ -60,7 +63,8 @@ public class Deobfuscator {
         InputStream classBytesStream = classLoader.getResourceAsStream(fileName);
         if (classBytesStream == null) return;
         try {
-            List<String> lines = new ArrayList<>();
+            List<Object> linesDesc = new ArrayList<>();
+            List<String> linesName = new ArrayList<>();
             ClassReader cr = new ClassReader(classBytesStream);
             cr.accept(new ClassVisitor(Opcodes.ASM7) {
                 @Override
@@ -74,13 +78,27 @@ public class Deobfuscator {
                     return new MethodVisitor(Opcodes.ASM7) {
                         @Override
                         public void visitLineNumber(int line, Label start) {
-                            for (int i = lines.size(); i <= line; i++) lines.add(null);
-                            lines.set(line, descriptor);
+                            for (int i = linesDesc.size(); i <= line; i++) linesDesc.add(null);
+                            for (int i = linesName.size(); i <= line; i++) linesName.add(null);
+                            Object present = linesDesc.get(line);
+                            if (present != null && !linesName.get(line).endsWith(name)) {
+                                if (present instanceof String) {
+                                    Map<String, String> descToName = new Object2ObjectArrayMap<>();
+                                    descToName.put(linesName.get(line), (String) present);
+                                    present = descToName;
+                                    linesDesc.set(line, present);
+                                }
+                                assert present instanceof Map;
+                                ((Map<String, String>) present).put(name, descriptor);
+                                return;
+                            }
+                            linesDesc.set(line, descriptor);
+                            linesName.set(line, name);
                         }
                     };
                 }
             }, ClassReader.SKIP_FRAMES);
-            classLinesMap.put(internalClassName, lines.toArray(new String[0]));
+            classLinesDescMap.put(internalClassName, linesDesc.toArray());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
