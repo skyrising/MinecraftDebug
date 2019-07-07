@@ -12,6 +12,8 @@ import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -29,6 +31,7 @@ public class DebugAnalyzer {
     }
 
     public void analyze() throws IOException {
+        long start = System.currentTimeMillis();
         Path classPathFile = from.resolve("classpath.txt");
         if (!Files.exists(classPathFile)) {
             throw new IllegalArgumentException("No classpath.txt");
@@ -44,8 +47,19 @@ public class DebugAnalyzer {
                 version.set(line.substring(line.lastIndexOf('/') + 1, line.lastIndexOf(".jar")));
             }
         });
-        this.mappings = YarnMappings.loadLatest(version.get());
         this.classLoader = createClassLoader(cp);
+        // Run class loader verification while requesting yarn version
+        CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
+            try {
+                classLoader.getResourceAsStream("net/minecraft/server/MinecraftServer.class").close();
+            } catch (IOException ignored) {}
+        });
+        this.mappings = YarnMappings.loadLatest(version.get());
+        try {
+            f.get();
+        } catch (InterruptedException | ExecutionException ignored) {
+            f.cancel(true);
+        }
         this.deobfuscator = new Deobfuscator(mappings, classLoader);
         Files.walk(this.from).forEach(from -> {
             if (Files.isDirectory(from)) return;
@@ -57,6 +71,7 @@ public class DebugAnalyzer {
                 throw new UncheckedIOException(e);
             }
         });
+        System.out.printf("%.3fs\n", (System.currentTimeMillis() - start) / 1e3);
     }
 
     private static ClassLoader createClassLoader(List<String> paths) throws MalformedURLException {
@@ -72,12 +87,14 @@ public class DebugAnalyzer {
         if (from.endsWith("example_crash.txt")) {
             try (BufferedReader reader = Files.newBufferedReader(from);
                  BufferedWriter writer = Files.newBufferedWriter(to, StandardOpenOption.TRUNCATE_EXISTING)) {
+                // long start = System.nanoTime();
                 String line;
 
                 while ((line = reader.readLine()) != null) {
                     writer.write(transformCrashLine(line));
                     writer.write('\n');
                 }
+                // System.out.printf("%s: %.3fms\n", from, (System.nanoTime() - start) / 1e6);
             }
             return;
         }
@@ -106,6 +123,7 @@ public class DebugAnalyzer {
                         if (p.isEmpty()) return p;
                         int index = p.indexOf('[');
                         String className = mappings.deobfuscateClass(p.substring(0, index));
+                        if (className == null) return p;
                         return className.substring(className.lastIndexOf('/') + 1) + p.substring(index);
                     }).collect(Collectors.joining("], ["));
                 return value.replace(playerList, players);

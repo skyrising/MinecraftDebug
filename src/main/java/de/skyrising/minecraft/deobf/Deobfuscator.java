@@ -53,6 +53,7 @@ public class Deobfuscator {
         int lineNumber = ste.getLineNumber();
         if (lines == null || lineNumber >= lines.length) return null;
         Object lineInfo = lines[lineNumber];
+        if (lineInfo == null) return null;
         if (lineInfo instanceof String) return (String) lineInfo;
         return ((Map<String, String>) lineInfo).get(ste.getMethodName());
     }
