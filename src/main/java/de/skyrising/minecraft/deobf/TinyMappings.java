@@ -52,14 +52,18 @@ public class TinyMappings implements Mappings {
     }
 
     public static TinyMappings load(InputStream stream) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-        String line = reader.readLine();
-        TinyMappings mappings = new TinyMappings(line);
-        while ((line = reader.readLine()) != null) {
-            mappings.loadLine(line);
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
+            String line = reader.readLine();
+            TinyMappings mappings = new TinyMappings(line);
+            while ((line = reader.readLine()) != null) {
+                mappings.loadLine(line);
+            }
+            mappings.finishLoading();
+            return mappings;
+        } finally {
+            stream.close();
         }
-        mappings.finishLoading();
-        return mappings;
     }
 
     private void loadLine(String line) {
