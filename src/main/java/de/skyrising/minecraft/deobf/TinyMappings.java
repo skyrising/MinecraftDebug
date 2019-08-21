@@ -3,17 +3,16 @@ package de.skyrising.minecraft.deobf;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import de.skyrising.util.StringView;
+import de.skyrising.util.Utf8LineReader;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.nio.channels.ReadableByteChannel;
 import java.util.*;
 
 public class TinyMappings implements Mappings {
-    private final String[] namespaces;
+    private final StringView[] namespaces;
     private final Object2IntMap<StringView>[] classMaps;
     private final List<StringView>[] classLists;
     private final Object2IntMap<MemberInfo>[] methodMaps;
@@ -25,9 +24,8 @@ public class TinyMappings implements Mappings {
     private int namespaceFrom = 0;
     private int namespaceTo;
 
-    private TinyMappings(String header) {
-        String[] splitHeader = header.split("\t");
-        namespaces = Arrays.copyOfRange(splitHeader, 1, splitHeader.length);
+    private TinyMappings(StringView[] header) {
+        namespaces = Arrays.copyOfRange(header, 1, header.length);
         namespaceTo = namespaces.length - 1;
         classMaps = new Object2IntMap[namespaces.length];
         classLists = new List[namespaces.length];
@@ -47,16 +45,16 @@ public class TinyMappings implements Mappings {
         }
     }
 
-    public static TinyMappings load(InputStream stream) throws IOException {
+    public static TinyMappings load(ReadableByteChannel channel) throws IOException {
         try {
             long start = System.nanoTime();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-            String line = reader.readLine();
-            TinyMappings mappings = new TinyMappings(line);
+            Utf8LineReader reader = new Utf8LineReader(channel);
+            byte[] line = reader.readLine();
+            TinyMappings mappings = new TinyMappings(StringView.split(line, '\t'));
             List<MemberInfo> fields = new ArrayList<>();
             List<MemberInfo> methods = new ArrayList<>();
             while ((line = reader.readLine()) != null) {
-                mappings.loadLine(line, methods, fields);
+                mappings.loadLine(StringView.split(line, '\t'), methods, fields);
             }
             for (int i = 0; i < mappings.namespaces.length; i++) {
                 mappings.methodMaps[i] = new Object2IntOpenHashMap<>(methods.size());
@@ -67,38 +65,56 @@ public class TinyMappings implements Mappings {
                     (System.nanoTime() - start) / 1e6, mappings.classLists[0].size(), methods.size(), fields.size());
             return mappings;
         } finally {
-            stream.close();
+            channel.close();
         }
     }
 
-    private void loadLine(String line, List<MemberInfo> methods, List<MemberInfo> fields) {
-        StringView[] split = StringView.split(line, '\t');
-        switch (split[0].toString()) {
-            case "CLASS": {
-                int classIndex = classLists[0].size();
-                for (int i = 1; i < split.length; i++) {
-                    int nsIndex = i - 1;
-                    classMaps[nsIndex].put(split[i], classIndex);
-                    classLists[nsIndex].add(split[i]);
-                }
+    public void setNamespaceFrom(StringView namespaceFrom) {
+        int namespaceFromIndex = -1;
+        for (int i = 0; i < namespaces.length; i++) {
+            if (namespaces[i].equals(namespaceFrom)) {
+                namespaceFromIndex = i;
                 break;
             }
-            case "METHOD": {
-                for (int i = 3; i < split.length; i++) {
-                    int nsIndex = i - 3;
-                    if (nsIndex == 0) methods.add(new MemberInfo(split[1], split[i], split[2]));
-                    methodNameLists[nsIndex].add(split[i]);
-                }
+        }
+        if (namespaceFromIndex < 0) throw new IllegalArgumentException(namespaceFrom.toString());
+        this.namespaceFrom = namespaceFromIndex;
+    }
+
+    public void setNamespaceTo(StringView namespaceTo) {
+        int namespaceToIndex = -1;
+        for (int i = 0; i < namespaces.length; i++) {
+            if (namespaces[i].equals(namespaceTo)) {
+                namespaceToIndex = i;
                 break;
             }
-            case "FIELD": {
-                for (int i = 3; i < split.length; i++) {
-                    int nsIndex = i - 3;
-                    if (nsIndex == 0) fields.add(new MemberInfo(split[1], split[i]));
-                    fieldLists[nsIndex].add(split[i]);
-                }
-                break;
+        }
+        if (namespaceToIndex < 0) throw new IllegalArgumentException(namespaceTo.toString());
+        this.namespaceTo = namespaceToIndex;
+    }
+
+    private void loadLine(StringView[] split, List<MemberInfo> methods, List<MemberInfo> fields) {
+        if (split[0].length() == 6) { // METHOD
+            for (int i = 3; i < split.length; i++) {
+                int nsIndex = i - 3;
+                if (nsIndex == 0) methods.add(new MemberInfo(split[1], split[i], split[2]));
+                methodNameLists[nsIndex].add(split[i]);
             }
+            return;
+        }
+        if (split[0].charAt(0) == 'C') { // CLASS
+            int classIndex = classLists[0].size();
+            for (int i = 1; i < split.length; i++) {
+                int nsIndex = i - 1;
+                classMaps[nsIndex].put(split[i], classIndex);
+                classLists[nsIndex].add(split[i]);
+            }
+            return;
+        }
+        for (int i = 3; i < split.length; i++) { // FIELD
+            int nsIndex = i - 3;
+            if (nsIndex == 0) fields.add(new MemberInfo(split[1], split[i]));
+            fieldLists[nsIndex].add(split[i]);
         }
     }
 
@@ -165,11 +181,12 @@ public class TinyMappings implements Mappings {
 
     private StringView renameSignature(StringView sig, int nsFrom, int nsTo) {
         if (nsFrom == nsTo) return sig;
-        StringBuilder renamedSig = new StringBuilder(sig.length());
+        CharSequence[] parts = new CharSequence[sig.length()];
+        int index = 0;
         for (int i = 0; i < sig.length(); i++) {
             char c = sig.charAt(i);
             if (c != 'L') {
-                renamedSig.append(c);
+                parts[index++] = String.valueOf(c);
                 continue;
             }
             int end = i + 1;
@@ -178,10 +195,12 @@ public class TinyMappings implements Mappings {
             }
             StringView obfClassName = sig.subSequence(i + 1, end);
             StringView className = renameClass(obfClassName, nsFrom, nsTo);
-            renamedSig.append('L').append(className == null ? obfClassName : className).append(';');
+            parts[index++] = "L";
+            parts[index++] = className == null ? obfClassName : className;
+            parts[index++] = ";";
             i = end;
         }
-        return new StringView(renamedSig.toString());
+        return StringView.join(parts, index);
     }
 
     @Override

@@ -74,7 +74,7 @@ public class DebugAnalyzer {
         System.out.printf("%.3fs\n", (System.currentTimeMillis() - start) / 1e3);
     }
 
-    private static ClassLoader createClassLoader(List<String> paths) throws MalformedURLException {
+    public static ClassLoader createClassLoader(List<String> paths) throws MalformedURLException {
         Path basePath = Paths.get(System.getProperty("user.home"), ".minecraft");
         URL[] urls = new URL[paths.size()];
         for (int i = 0; i < urls.length; i++) {
@@ -91,7 +91,7 @@ public class DebugAnalyzer {
                 String line;
 
                 while ((line = reader.readLine()) != null) {
-                    writer.write(transformCrashLine(line));
+                    writer.write(transformCrashLine(deobfuscator, line));
                     writer.write('\n');
                 }
                 // System.out.printf("%s: %.3fms\n", from, (System.nanoTime() - start) / 1e6);
@@ -101,20 +101,20 @@ public class DebugAnalyzer {
         Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private String transformCrashLine(String line) {
+    public static String transformCrashLine(Deobfuscator deobfuscator, String line) {
         StackTraceElement ste = StackTraceUtil.parse(line);
         if (ste != null) return "\tat " + deobfuscator.deobfuscate(ste);
         if (line.startsWith("\t") && line.contains(":")) {
             int index = line.indexOf(':');
             String key = line.substring(1, index);
             String value = line.substring(index + 2);
-            value = transformCrashReportDetail(key, value);
+            value = transformCrashReportDetail(deobfuscator, key, value);
             return "\t" + key + ": " + value;
         }
         return line;
     }
 
-    private String transformCrashReportDetail(String key, String value) {
+    public static String transformCrashReportDetail(Deobfuscator deobfuscator, String key, String value) {
         switch (key) {
             case "All players": case "Player Count": {
                 String playerList = value.substring(value.indexOf('[') + 1, value.lastIndexOf(']'));
@@ -122,7 +122,7 @@ public class DebugAnalyzer {
                     .map(p -> {
                         if (p.isEmpty()) return p;
                         int index = p.indexOf('[');
-                        String className = mappings.deobfuscateClass(p.substring(0, index));
+                        String className = deobfuscator.mappings.deobfuscateClass(p.substring(0, index));
                         if (className == null) return p;
                         return className.substring(className.lastIndexOf('/') + 1) + p.substring(index);
                     }).collect(Collectors.joining("], ["));

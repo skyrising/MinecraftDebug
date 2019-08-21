@@ -3,21 +3,21 @@ package de.skyrising.util;
 import java.util.ArrayList;
 
 public final class StringView implements CharSequence {
-    private final String value;
+    private final CharSequence value;
     private String trimmedValue;
     private final int offset;
     private final int length;
     private int hash;
 
-    public StringView(String value) {
+    public StringView(CharSequence value) {
         this(value, 0, value.length());
     }
 
-    public StringView(String value, int off, int len) {
+    public StringView(CharSequence value, int off, int len) {
         this.value = value;
         this.offset = off;
         this.length = len;
-        if (len == value.length()) trimmedValue = value;
+        if (value instanceof String && len == value.length()) trimmedValue = (String) value;
     }
 
     @Override
@@ -72,20 +72,39 @@ public final class StringView implements CharSequence {
     @Override
     public String toString() {
         if (trimmedValue != null) return trimmedValue;
-        return trimmedValue = value.substring(offset, offset + length);
+        return trimmedValue = value.subSequence(offset, offset + length).toString();
     }
 
-    public static StringView[] split(String s, char c) {
+    public static StringView[] split(CharSequence s, char c) {
         ArrayList<StringView> segments = new ArrayList<>();
-        char[] chars = s.toCharArray();
-        int len = chars.length;
+        int len = s.length();
         int prevEnd = 0;
         for (int i = 0; i < len; i++) {
-            if (chars[i] != c) continue;
+            if (s.charAt(i) != c) continue;
             segments.add(new StringView(s, prevEnd, i - prevEnd));
             prevEnd = i + 1;
         }
         if (prevEnd != len) segments.add(new StringView(s, prevEnd, len - prevEnd));
         return segments.toArray(new StringView[0]);
+    }
+
+    public static StringView[] split(byte[] s, char c) {
+        return split(new Utf8String(s), c);
+    }
+
+    public static StringView join(CharSequence[] parts, int length) {
+        int totalLength = 0;
+        for (int i = 0; i < length; i++) {
+            totalLength += parts[i].length();
+        }
+        char[] chars = new char[totalLength];
+        int off = 0;
+        for (int i = 0; i < length; i++) {
+            CharSequence s = parts[i];
+            for (int j = 0; j < s.length(); j++) {
+                chars[off++] = s.charAt(j);
+            }
+        }
+        return new StringView(new Utf8String(chars));
     }
 }

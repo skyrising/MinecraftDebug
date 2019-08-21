@@ -11,13 +11,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.zip.GZIPInputStream;
 
 public final class YarnMappings {
     private static final Path CACHE_DIR = Paths.get(System.getProperty("java.io.tmpdir"), "fabric-yarn-cache");
-    private static final Gson GSON = new Gson();
     private YarnMappings() {}
 
     public static String getLatestVersion(String gameVersion) throws IOException {
@@ -27,11 +27,16 @@ public final class YarnMappings {
             String version = new String(Files.readAllBytes(versionFile), StandardCharsets.UTF_8);
             String v = version.substring(version.lastIndexOf(':') + 1);
             if (v.startsWith(gameVersion)) return version;
+            System.out.printf("%s != %s\n", v, gameVersion);
         }
         System.out.println("Querying latest mappings for " + gameVersion);
         URL url = new URL("https://meta.fabricmc.net/v2/versions/yarn/" + gameVersion);
-        JsonArray json = GSON.fromJson(new InputStreamReader(url.openStream()), JsonArray.class);
-        return json.get(0).getAsJsonObject().get("maven").getAsString();
+        JsonArray json = new Gson().fromJson(new InputStreamReader(url.openStream()), JsonArray.class);
+        String version = json.get(0).getAsJsonObject().get("maven").getAsString();
+        if (Files.exists(versionFile) && new String(Files.readAllBytes(versionFile), StandardCharsets.UTF_8).equals(version)) {
+            Files.setLastModifiedTime(versionFile, FileTime.from(Instant.now()));
+        }
+        return version;
     }
 
     public static Mappings load(String yarnVersion) throws IOException {
@@ -42,7 +47,7 @@ public final class YarnMappings {
                 splitVersion[0] + "." + splitVersion[1] + "-tiny-" + splitVersion[2].replace("+build.", "-"));
         if (Files.exists(loomCached)) {
             System.out.println("Loading from fabric-loom cache");
-            return TinyMappings.load(Files.newInputStream(loomCached));
+            return TinyMappings.load(Files.newByteChannel(loomCached));
         }
         Files.createDirectories(CACHE_DIR);
         Path versionFile = CACHE_DIR.resolve("version");
@@ -57,7 +62,7 @@ public final class YarnMappings {
         } else {
             System.out.println("Loading from cache");
         }
-        return TinyMappings.load(Files.newInputStream(mappingsFile));
+        return TinyMappings.load(Files.newByteChannel(mappingsFile));
     }
 
     public static Mappings loadLatest(String gameVersion) throws IOException {

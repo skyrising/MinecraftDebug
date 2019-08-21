@@ -9,7 +9,7 @@ import java.io.UncheckedIOException;
 import java.util.*;
 
 public class Deobfuscator {
-    private Mappings mappings;
+    public final Mappings mappings;
     private ClassLoader classLoader;
     private Set<String> classesParsed = new HashSet<>();
     private Map<String, Object[]> classLinesDescMap = new HashMap<>();
